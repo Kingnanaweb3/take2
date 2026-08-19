@@ -1,0 +1,31 @@
+[
+  {
+    "scene_id": 1,
+    "heading": "EXT. STADIUM - DAY",
+    "verdict": "Blocked",
+    "flags": [
+      {
+        "agent": "music_licensing",
+        "item": "Taylor Swift",
+        "context": "a Taylor Swift song plays over the speakers",
+        "risk": "high",
+        "reasoning": "Using music by a real, commercially protected artist requires a master use and synchronization license."
+      },
+      {
+        "agent": "trademark",
+        "item": "Nike",
+        "context": "SARAH laces up her Nike sneakers",
+        "risk": "high",
+        "reasoning": "Nike is a real, named commercial brand of footwear that requires clearance for on-screen use."
+      },
+      {
+        "agent": "location",
+        "item": "Golden Gate Bridge",
+        "context": "near the Golden Gate Bridge",
+        "risk": "high",
+        "reasoning": "The Golden Gate Bridge is a heavily regulated public landmark requiring specific permits and clearances from the Golden Gate Bridge, Highway and Transportation District for commercial filming."
+      }
+    ],
+    "flag_count": 3
+  }
+]

@@ -1,0 +1,20 @@
+# Secrets — never commit
+.env
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Generated pipeline output
+data/parsed/
+
+# Temp scripts from the analyze endpoint
+data/sample_scripts/tmp*.md
+
+# OS / editor
+.DS_Store
+*.log
+google-cloud-cli-*.tar.gz

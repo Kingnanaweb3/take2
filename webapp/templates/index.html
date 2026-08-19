@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Take2 — Clearance Control Room</title>
+  <link rel="stylesheet" href="/static/styles.css?v=4">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+</head>
+<body>
+  <div class="page">
+    <header class="topbar">
+      <div class="brand">
+        <span class="logo">T2</span>
+        <div>
+          <h1>Clearance Control Room</h1>
+          <p class="subtitle">Real-time overview of script clearance and risk analysis</p>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <span class="status-pill"><span class="dot"></span>Updated just now</span>
+      </div>
+    </header>
+
+    <!-- Stat cards -->
+    <section class="stat-row">
+      <div class="stat-card">
+        <div class="stat-icon icon-scenes"></div>
+        <div>
+          <p class="stat-label">Scenes processed</p>
+          <p class="stat-value" id="total-scenes">—</p>
+          <p class="stat-sub">Live from Grafana</p>
+        </div>
+      </div>
+      <div class="stat-card danger">
+        <div class="stat-icon icon-blocked"></div>
+        <div>
+          <p class="stat-label">Blocked rate</p>
+          <p class="stat-value danger-text" id="blocked-rate">—</p>
+          <p class="stat-sub" id="blocked-sub">— scenes blocked</p>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon icon-flags"></div>
+        <div>
+          <p class="stat-label">Avg flags / scene</p>
+          <p class="stat-value" id="avg-flags">—</p>
+          <p class="stat-sub">Across all agents</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Charts row -->
+    <section class="mid-row">
+      <div class="panel">
+        <h2>Verdict breakdown</h2>
+        <div class="donut-wrap">
+          <canvas id="verdict-donut"></canvas>
+        </div>
+        <p class="panel-footer">Total scenes: <strong id="verdict-total">—</strong></p>
+      </div>
+
+      <div class="panel">
+        <h2>Flags by agent</h2>
+        <div class="agent-bars" id="agent-bars"></div>
+        <p class="panel-footer">Total flags: <strong id="flag-total">—</strong></p>
+      </div>
+    </section>
+
+    <!-- Analyze: paste a script and run the pipeline live -->
+    <section class="panel analyze-panel">
+      <h2>Analyze a script</h2>
+      <textarea id="script-input" class="script-input" placeholder="Paste a script scene here, e.g.&#10;&#10;# INT. COFFEE SHOP - DAY&#10;&#10;JOHN sips a Coca-Cola while Blinding Lights plays..."></textarea>
+      <div class="analyze-actions">
+        <button id="analyze-btn" class="analyze-btn" onclick="runAnalysis()">Run Analysis</button>
+        <span id="analyze-status" class="analyze-status"></span>
+      </div>
+    </section>
+
+    <!-- Latest Analysis -->
+    <section class="panel latest-panel">
+      <h2>Latest analysis</h2>
+      <div id="latest-scenes" class="latest-scenes">
+        <p class="loading">Loading latest run...</p>
+      </div>
+    </section>
+
+    <div class="disclaimer-bar">
+      <div class="disclaimer-icon"></div>
+      <div>
+        <p class="disclaimer-strong">All analysis is automated and for informational purposes only.</p>
+        <p class="disclaimer-muted">Review final clearances with your legal team.</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const AGENT_LABELS = {
+      music_licensing: "Music Rights",
+      trademark: "Trademark & Brands",
+      likeness: "Likeness & People",
+      location: "Location Clearance"
+    };
+    let donutChart = null;
+
+    async function runAnalysis() {
+      const input = document.getElementById("script-input");
+      const btn = document.getElementById("analyze-btn");
+      const status = document.getElementById("analyze-status");
+      const script = input.value.trim();
+
+      if (!script) { status.textContent = "Please paste a script first."; return; }
+
+      btn.disabled = true;
+      btn.textContent = "Analyzing...";
+      status.textContent = "Running agents (this takes a few seconds)...";
+
+      try {
+        const res = await fetch("/api/analyze", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ script })
+        });
+        const data = await res.json();
+        if (data.error) {
+          status.textContent = "Error: " + data.error;
+        } else {
+          status.innerHTML = 'Done. Pushed to Grafana audit trail. <a href="https://valiantbeaver2622.grafana.net/d/kirxhgs/take2-clearance-control-room" target="_blank" class="grafana-link">View in Grafana &rarr;</a>';
+          renderScenes(data.scenes);
+          setTimeout(loadStats, 4000); // give Grafana a moment to ingest, then refresh numbers
+        }
+      } catch (e) {
+        status.textContent = "Request failed: " + e.message;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Run Analysis";
+      }
+    }
+
+    async function loadStats() {
+      try {
+        const res = await fetch("/api/stats");
+        const data = await res.json();
+        if (data.error) { console.error(data.error); return; }
+
+        document.getElementById("total-scenes").textContent = data.total_scenes;
+        document.getElementById("blocked-rate").textContent = data.blocked_rate + "%";
+        document.getElementById("blocked-sub").textContent = data.verdicts.Blocked + " scenes blocked";
+        document.getElementById("avg-flags").textContent = data.avg_flags;
+        document.getElementById("verdict-total").textContent = data.total_scenes;
+        document.getElementById("flag-total").textContent = data.total_flags;
+
+        // Donut
+        const ctx = document.getElementById("verdict-donut");
+        const vData = [data.verdicts.Cleared, data.verdicts.Flagged, data.verdicts.Blocked];
+        if (donutChart) {
+          donutChart.data.datasets[0].data = vData;
+          donutChart.update();
+        } else {
+          donutChart = new Chart(ctx, {
+            type: "doughnut",
+            data: {
+              labels: ["Cleared", "Flagged", "Blocked"],
+              datasets: [{
+                data: vData,
+                backgroundColor: ["#34c759", "#f5c542", "#f0524b"],
+                borderWidth: 0,
+                hoverOffset: 8
+              }]
+            },
+            options: {
+              cutout: "62%",
+              plugins: {
+                legend: { position: "bottom", labels: { padding: 16, font: { size: 13 } } }
+              }
+            }
+          });
+        }
+
+        // Agent bars
+        const maxF = Math.max(...Object.values(data.flags), 1);
+        const aBars = document.getElementById("agent-bars");
+        aBars.innerHTML = "";
+        for (const [agent, count] of Object.entries(data.flags)) {
+          const label = AGENT_LABELS[agent] || agent;
+          aBars.innerHTML += `
+            <div class="abar-row">
+              <span class="abar-label">${label}</span>
+              <div class="abar-track">
+                <div class="abar-fill" style="width:${(count / maxF) * 100}%"></div>
+              </div>
+              <span class="abar-count">${count}</span>
+            </div>`;
+        }
+      } catch (e) { console.error("stats:", e); }
+    }
+
+    async function loadLatest() {
+      try {
+        const res = await fetch("/api/latest");
+        const data = await res.json();
+        const container = document.getElementById("latest-scenes");
+        if (data.error || !data.scenes || data.scenes.length === 0) {
+          container.innerHTML = '<p class="loading">No analysis available yet.</p>';
+          return;
+        }
+        renderScenes(data.scenes);
+      } catch (e) { console.error("latest:", e); }
+    }
+
+    function renderScenes(scenes) {
+      const container = document.getElementById("latest-scenes");
+      const badge = { Cleared: "green", Flagged: "amber", Blocked: "red" };
+      container.innerHTML = "";
+      for (const scene of scenes) {
+        let flagsHtml = "";
+        if (scene.flags && scene.flags.length) {
+          flagsHtml = scene.flags.map(f => `
+            <div class="flag-item">
+              <div class="flag-head">
+                <span class="flag-agent">${AGENT_LABELS[f.agent] || f.agent}</span>
+                <span class="flag-risk risk-${f.risk}">${f.risk}</span>
+                <span class="flag-name">${f.item}</span>
+              </div>
+              <p class="flag-reason">${f.reasoning || ""}</p>
+            </div>`).join("");
+        } else {
+          flagsHtml = '<p class="no-flags">No clearance risks found.</p>';
+        }
+        container.innerHTML += `
+          <div class="scene-card">
+            <div class="scene-head">
+              <span class="scene-title">Scene ${scene.scene_id}: ${scene.heading}</span>
+              <span class="verdict-badge ${badge[scene.verdict] || ''}">${scene.verdict}</span>
+            </div>
+            <div class="scene-flags">${flagsHtml}</div>
+          </div>`;
+      }
+    }
+
+    loadStats();
+    loadLatest();
+    setInterval(() => { loadStats(); loadLatest(); }, 15000);
+  </script>
+</body>
+</html>
